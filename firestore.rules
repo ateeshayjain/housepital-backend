@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // User-patient mapping (for security rule lookups)
+    match /user_patients/{userId}/patients/{patientId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false; // Only Cloud Functions write
+    }
+
+    // Real-time attendance sessions
+    match /active_sessions/{patientId} {
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/user_patients/$(request.auth.uid)/patients/$(patientId));
+      allow write: if false; // Only Cloud Functions write
+    }
+
+    // Real-time vitals
+    match /vitals_live/{patientId} {
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/user_patients/$(request.auth.uid)/patients/$(patientId));
+      allow write: if false; // Only Cloud Functions write
+    }
+
+    // Chat messages
+    match /chat_messages/{patientId}/messages/{messageId} {
+      allow read, write: if request.auth != null &&
+        exists(/databases/$(database)/documents/user_patients/$(request.auth.uid)/patients/$(patientId));
+    }
+
+    // In-app notifications
+    match /notifications/{userId}/items/{notificationId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      allow write: if false; // Only Cloud Functions create
+    }
+
+    // Deny everything else by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
