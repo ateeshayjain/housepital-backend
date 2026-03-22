@@ -10,18 +10,17 @@ import deploymentRoutes from "./routes/deployments";
 import staffRoutes from "./routes/staff";
 import reportRoutes from "./routes/reports";
 import familyRoutes from "./routes/family";
-// Phase 3+: uncomment as routes are built
-// import serviceRoutes from "./routes/services";
-// import bookingRoutes from "./routes/bookings";
-// import assessmentRoutes from "./routes/assessments";
-// import billingRoutes from "./routes/billing";
-// import paymentRoutes from "./routes/payments";
-// import concernRoutes from "./routes/concerns";
-// import ratingRoutes from "./routes/ratings";
-// import notificationRoutes from "./routes/notifications";
-// import equipmentRoutes from "./routes/equipment";
-// import medicationRoutes from "./routes/medications";
-// import couponRoutes from "./routes/coupons";
+import serviceRoutes from "./routes/services";
+import bookingRoutes from "./routes/bookings";
+import assessmentRoutes from "./routes/assessments";
+import billingRoutes from "./routes/billing";
+import paymentRoutes from "./routes/payments";
+import concernRoutes from "./routes/concerns";
+import ratingRoutes from "./routes/ratings";
+import notificationRoutes from "./routes/notifications";
+import equipmentRoutes from "./routes/equipment";
+import medicationRoutes from "./routes/medications";
+import couponRoutes from "./routes/coupons";
 
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -51,18 +50,17 @@ app.use("/deployments", deploymentRoutes);
 app.use("/staff", staffRoutes);
 app.use("/reports", reportRoutes);
 app.use("/", familyRoutes); // family routes mount at /patients/:patientId/family AND /family/:memberId
-// Phase 3+: uncomment as routes are built
-// app.use("/services", serviceRoutes);
-// app.use("/bookings", bookingRoutes);
-// app.use("/assessments", assessmentRoutes);
-// app.use("/billing", billingRoutes);
-// app.use("/payments", paymentRoutes);
-// app.use("/concerns", concernRoutes);
-// app.use("/ratings", ratingRoutes);
-// app.use("/notifications", notificationRoutes);
-// app.use("/equipment", equipmentRoutes);
-// app.use("/medications", medicationRoutes);
-// app.use("/coupons", couponRoutes);
+app.use("/services", serviceRoutes);
+app.use("/", bookingRoutes); // /bookings (POST) + /patients/:patientId/bookings (GET)
+app.use("/", assessmentRoutes); // /assessments (POST) + /patients/:patientId/assessments (GET)
+app.use("/", billingRoutes); // /patients/:patientId/billing + /invoices/:id + /transactions/:id
+app.use("/payments", paymentRoutes);
+app.use("/", concernRoutes); // /concerns (POST) + /patients/:patientId/concerns (GET)
+app.use("/ratings", ratingRoutes);
+app.use("/notifications", notificationRoutes);
+app.use("/equipment", equipmentRoutes);
+app.use("/patients", medicationRoutes); // /patients/:patientId/medications, /patients/:patientId/medication-logs
+app.use("/coupons", couponRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
