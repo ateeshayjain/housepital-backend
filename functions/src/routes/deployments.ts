@@ -1,22 +1,10 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
 import { verifyAuth } from "../middleware/auth";
+import { parseJsonCol } from "../utils/helpers";
+import { logger } from "../utils/logger";
 
 const router = Router();
-
-// ── Helpers ──────────────────────────────────────────────────
-
-function parseJsonCol(val: any): any {
-  if (val == null) return null;
-  if (typeof val === "string") {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return val;
-    }
-  }
-  return val;
-}
 
 // ── GET /deployments/:id/service-detail ──────────────────────
 
@@ -67,32 +55,34 @@ router.get(
         deployment_ids: [deployment.id],
       };
 
-      // Staff on duty today
+      // Staff on duty today — single JOIN instead of N+1
       const todayAttendance = await db("attendance")
-        .where("deployment_id", deploymentId)
-        .whereRaw("DATE(date) = CURDATE()");
+        .leftJoin("staff", "attendance.staff_id", "staff.id")
+        .where("attendance.deployment_id", deploymentId)
+        .whereRaw("DATE(attendance.date) = CURDATE()")
+        .select(
+          "attendance.*",
+          "staff.name as staff_name",
+          "staff.photo_url",
+          "staff.role as staff_role",
+          "staff.rating"
+        );
 
-      const staffOnDuty: any[] = [];
-      for (const att of todayAttendance) {
-        const staff = await db("staff").where("id", att.staff_id).first();
-        if (staff) {
-          staffOnDuty.push({
-            id: staff.id,
-            name: staff.name,
-            photo_url: staff.photo_url || null,
-            role: staff.role || deployment.staff_role || "Caretaker",
-            shift_type: deployment.shift_type || "24hr",
-            check_in_time: att.check_in_time || null,
-            rating: staff.rating || null,
-            is_replacement: !!att.replacement_name,
-            replacing_name: att.replacement_name || null,
-          });
-        }
-      }
+      const staffOnDuty = todayAttendance.map((att: any) => ({
+        id: att.staff_id,
+        name: att.staff_name || null,
+        photo_url: att.photo_url || null,
+        role: att.staff_role || deployment.staff_role || "Caretaker",
+        shift_type: deployment.shift_type || "24hr",
+        check_in_time: att.check_in_time || null,
+        rating: att.rating || null,
+        is_replacement: !!att.replacement_name,
+        replacing_name: att.replacement_name || null,
+      }));
 
       // Update checked_in count
       service.checked_in_staff = staffOnDuty.filter(
-        (s) => s.check_in_time
+        (s: any) => s.check_in_time
       ).length;
 
       // Attendance last 7 days
@@ -244,7 +234,7 @@ router.get(
         equipment: formattedEquipment,
       });
     } catch (error: any) {
-      console.error("GET service-detail error:", error.message);
+      logger.error("GET service-detail error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch service detail" });
     }
   }
@@ -289,7 +279,9 @@ router.get(
         total: Number(countResult?.count || 0),
       });
     } catch (error: any) {
-      console.error("GET deployment attendance error:", error.message);
+      logger.error("GET deployment attendance error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch attendance" });
     }
   }

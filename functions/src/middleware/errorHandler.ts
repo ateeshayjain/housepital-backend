@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { logger } from "../utils/logger";
 
 /**
  * Centralized error handler for Express.
@@ -10,7 +11,7 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  console.error("Unhandled error:", err.message, err.stack);
+  logger.error("Unhandled error", { error: err.message, stack: err.stack });
 
   const statusCode = err.statusCode || 500;
   const message = err.message || "Internal server error";

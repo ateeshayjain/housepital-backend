@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { auth } from "../config/firebase";
 import { getDb } from "../config/cloudSql";
+import { logger } from "../utils/logger";
 
 // Extend Express Request with auth context
 export interface AuthRequest extends Request {
@@ -64,7 +65,7 @@ export async function verifyAuth(
     if (error.code === "auth/id-token-expired") {
       res.status(401).json({ error: "Token expired. Please re-authenticate." });
     } else {
-      console.error("Auth error:", error.message);
+      logger.error("Auth error", { error: error.message });
       res.status(401).json({ error: "Invalid authentication token" });
     }
   }

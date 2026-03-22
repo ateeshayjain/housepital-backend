@@ -8,6 +8,12 @@ import {
   verifyAuth,
   requirePrimary,
 } from "../middleware/auth";
+import { logger } from "../utils/logger";
+import {
+  validateBody,
+  createPaymentOrderSchema,
+  verifyPaymentSchema,
+} from "../utils/validators";
 
 const router = Router();
 
@@ -21,17 +27,9 @@ router.post(
     const authReq = req as AuthRequest;
     const db = getDb();
 
-    const { patient_id, amount, payment_type, reference_type, reference_id } =
-      req.body;
+    const data = validateBody(createPaymentOrderSchema, req.body);
 
-    if (!patient_id || !amount || !payment_type) {
-      res.status(400).json({
-        error: "patient_id, amount, and payment_type are required",
-      });
-      return;
-    }
-
-    if (patient_id !== authReq.patientId) {
+    if (data.patient_id !== authReq.patientId) {
       res
         .status(403)
         .json({ error: "You do not have access to this patient" });
@@ -43,14 +41,14 @@ router.post(
 
       // Create Razorpay order (amount in paise)
       const order = await razorpay.orders.create({
-        amount: amount,
+        amount: data.amount,
         currency: "INR",
         receipt: `hpl_${Date.now()}`,
         notes: {
-          patient_id,
-          payment_type,
-          reference_type: reference_type || "",
-          reference_id: reference_id || "",
+          patient_id: data.patient_id,
+          payment_type: data.payment_type,
+          reference_type: data.reference_type || "",
+          reference_id: data.reference_id || "",
         },
       });
 
@@ -58,14 +56,14 @@ router.post(
       const paymentId = uuidv4();
       await db("payments").insert({
         id: paymentId,
-        patient_id,
+        patient_id: data.patient_id,
         family_member_id: authReq.userId,
         razorpay_order_id: order.id,
-        amount,
+        amount: data.amount,
         currency: "INR",
-        payment_type,
-        reference_type: reference_type || null,
-        reference_id: reference_id || null,
+        payment_type: data.payment_type,
+        reference_type: data.reference_type || null,
+        reference_id: data.reference_id || null,
         status: "pending",
         created_at: new Date(),
         updated_at: new Date(),
@@ -78,7 +76,9 @@ router.post(
         currency: order.currency,
       });
     } catch (error: any) {
-      console.error("POST /payments/create-order error:", error.message);
+      logger.error("POST /payments/create-order error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to create payment order" });
     }
   }
@@ -92,37 +92,25 @@ router.post(
   async (req: Request, res: Response) => {
     const db = getDb();
 
-    const {
-      razorpay_payment_id,
-      razorpay_order_id,
-      razorpay_signature,
-    } = req.body;
-
-    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
-      res.status(400).json({
-        error:
-          "razorpay_payment_id, razorpay_order_id, and razorpay_signature are required",
-      });
-      return;
-    }
+    const data = validateBody(verifyPaymentSchema, req.body);
 
     try {
       // Verify signature
       const secret = getRazorpayKeySecret();
-      const body = razorpay_order_id + "|" + razorpay_payment_id;
+      const body = data.razorpay_order_id + "|" + data.razorpay_payment_id;
       const expectedSignature = crypto
         .createHmac("sha256", secret)
         .update(body)
         .digest("hex");
 
-      if (expectedSignature !== razorpay_signature) {
+      if (expectedSignature !== data.razorpay_signature) {
         res.status(400).json({ error: "Invalid payment signature" });
         return;
       }
 
       // Update payment record
       const payment = await db("payments")
-        .where("razorpay_order_id", razorpay_order_id)
+        .where("razorpay_order_id", data.razorpay_order_id)
         .first();
 
       if (!payment) {
@@ -133,8 +121,8 @@ router.post(
       await db("payments")
         .where("id", payment.id)
         .update({
-          razorpay_payment_id,
-          razorpay_signature,
+          razorpay_payment_id: data.razorpay_payment_id,
+          razorpay_signature: data.razorpay_signature,
           status: "captured",
           updated_at: new Date(),
         });
@@ -155,7 +143,7 @@ router.post(
         status: "captured",
       });
     } catch (error: any) {
-      console.error("POST /payments/verify error:", error.message);
+      logger.error("POST /payments/verify error", { error: error.message });
       res.status(500).json({ error: "Failed to verify payment" });
     }
   }
@@ -242,7 +230,7 @@ router.post("/webhook", async (req: Request, res: Response) => {
 
     res.json({ status: "ok" });
   } catch (error: any) {
-    console.error("POST /payments/webhook error:", error.message);
+    logger.error("POST /payments/webhook error", { error: error.message });
     res.status(500).json({ error: "Webhook processing failed" });
   }
 });

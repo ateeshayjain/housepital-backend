@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
 import { verifyAuth } from "../middleware/auth";
+import { logger } from "../utils/logger";
 
 const router = Router();
 
@@ -101,7 +102,7 @@ router.post("/validate", verifyAuth, async (req: Request, res: Response) => {
       valid: true,
     });
   } catch (error: any) {
-    console.error("POST /coupons/validate error:", error.message);
+    logger.error("POST /coupons/validate error", { error: error.message });
     res.status(500).json({ error: "Failed to validate coupon" });
   }
 });
@@ -128,7 +129,7 @@ router.get("/", verifyAuth, async (req: Request, res: Response) => {
     const coupons = await query.orderBy("created_at", "desc");
     res.json(coupons);
   } catch (error: any) {
-    console.error("GET /coupons error:", error.message);
+    logger.error("GET /coupons error", { error: error.message });
     res.status(500).json({ error: "Failed to fetch coupons" });
   }
 });

@@ -7,6 +7,7 @@ import {
   verifyPatientAccess,
   requirePrimary,
 } from "../middleware/auth";
+import { logger } from "../utils/logger";
 
 const router = Router();
 
@@ -70,7 +71,7 @@ router.post(
         },
       });
     } catch (error: any) {
-      console.error("POST /assessments error:", error.message);
+      logger.error("POST /assessments error", { error: error.message });
       res.status(500).json({ error: "Failed to create assessment request" });
     }
   }
@@ -104,10 +105,9 @@ router.get(
 
       res.json({ assessments: formatted });
     } catch (error: any) {
-      console.error(
-        "GET /patients/:patientId/assessments error:",
-        error.message
-      );
+      logger.error("GET /patients/:patientId/assessments error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch assessments" });
     }
   }

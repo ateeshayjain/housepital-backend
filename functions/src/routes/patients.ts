@@ -6,22 +6,12 @@ import {
   verifyPatientAccess,
   requirePrimary,
 } from "../middleware/auth";
+import { parseJsonCol } from "../utils/helpers";
+import { logger } from "../utils/logger";
 
 const router = Router();
 
 // ── Helpers ──────────────────────────────────────────────────
-
-function parseJsonCol(val: any): any {
-  if (val == null) return null;
-  if (typeof val === "string") {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return val;
-    }
-  }
-  return val;
-}
 
 function formatPatient(row: any): any {
   return {
@@ -55,7 +45,7 @@ router.get("/", verifyAuth, async (req: Request, res: Response) => {
     const patients = await db("patients").whereIn("id", patientIds);
     res.json({ patients: patients.map(formatPatient) });
   } catch (error: any) {
-    console.error("GET /patients error:", error.message);
+    logger.error("GET /patients error", { error: error.message });
     res.status(500).json({ error: "Failed to fetch patients" });
   }
 });
@@ -77,7 +67,7 @@ router.get(
       }
       res.json({ patient: formatPatient(patient) });
     } catch (error: any) {
-      console.error("GET /patients/:id error:", error.message);
+      logger.error("GET /patients/:id error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch patient" });
     }
   }
@@ -146,7 +136,7 @@ router.put(
       const updated = await db("patients").where("id", patientId).first();
       res.json(formatPatient(updated));
     } catch (error: any) {
-      console.error("PUT /patients/:id error:", error.message);
+      logger.error("PUT /patients/:id error", { error: error.message });
       res.status(500).json({ error: "Failed to update patient" });
     }
   }
@@ -228,7 +218,9 @@ router.get(
         active_services_count: Number(activeServicesCount?.count || 0),
       });
     } catch (error: any) {
-      console.error("GET /patients/:id/dashboard error:", error.message);
+      logger.error("GET /patients/:id/dashboard error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch dashboard" });
     }
   }
@@ -251,7 +243,9 @@ router.get(
 
       res.json({ deployment: deployment || null });
     } catch (error: any) {
-      console.error("GET /patients/:id/deployment error:", error.message);
+      logger.error("GET /patients/:id/deployment error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch deployment" });
     }
   }
@@ -286,7 +280,7 @@ router.get(
 
       res.json({ attendance: attendance || null });
     } catch (error: any) {
-      console.error("GET attendance/today error:", error.message);
+      logger.error("GET attendance/today error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch today's attendance" });
     }
   }
@@ -334,7 +328,7 @@ router.get(
         total: Number(countResult?.count || 0),
       });
     } catch (error: any) {
-      console.error("GET attendance error:", error.message);
+      logger.error("GET attendance error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch attendance" });
     }
   }
@@ -357,7 +351,7 @@ router.get(
 
       res.json({ vitals: vitals || null });
     } catch (error: any) {
-      console.error("GET vitals/latest error:", error.message);
+      logger.error("GET vitals/latest error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch latest vitals" });
     }
   }
@@ -389,7 +383,7 @@ router.get(
 
       res.json({ vitals });
     } catch (error: any) {
-      console.error("GET vitals error:", error.message);
+      logger.error("GET vitals error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch vitals" });
     }
   }
@@ -435,7 +429,7 @@ router.get(
         },
       });
     } catch (error: any) {
-      console.error("GET reports/today error:", error.message);
+      logger.error("GET reports/today error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch today's report" });
     }
   }
@@ -482,13 +476,14 @@ router.get(
         })),
       });
     } catch (error: any) {
-      console.error("GET reports error:", error.message);
+      logger.error("GET reports error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch reports" });
     }
   }
 );
 
 // ── GET /patients/:id/active-services ────────────────────────
+// Fixed: replaced N+1 per-deployment attendance queries with a single batch query
 
 router.get(
   "/:id/active-services",
@@ -499,23 +494,56 @@ router.get(
     const patientId = req.params.id;
 
     try {
-      // Get active deployments with staff info
+      // Get active deployments
       const deployments = await db("deployments")
-        .where("deployments.patient_id", patientId)
-        .where("deployments.status", "active")
-        .select("deployments.*");
+        .where("patient_id", patientId)
+        .where("status", "active");
+
+      if (deployments.length === 0) {
+        res.json({ services: [] });
+        return;
+      }
+
+      const deploymentIds = deployments.map((d: any) => d.id);
+
+      // Get all attendance counts in one query
+      const attendanceCounts = await db("attendance")
+        .whereIn("deployment_id", deploymentIds)
+        .whereRaw("DATE(date) = CURDATE()")
+        .where("status", "checked_in")
+        .groupBy("deployment_id")
+        .select("deployment_id")
+        .count("id as count");
+
+      const countMap: Record<string, number> = {};
+      for (const row of attendanceCounts) {
+        countMap[row.deployment_id] = Number(row.count);
+      }
+
+      // Latest vitals for this patient (single query)
+      const latestVital = await db("vitals")
+        .where("patient_id", patientId)
+        .orderBy("recorded_at", "desc")
+        .first();
+
+      let latestVitalLabel = null;
+      let latestVitalStatus = null;
+      if (latestVital) {
+        if (latestVital.systolic && latestVital.diastolic) {
+          latestVitalLabel = `${latestVital.systolic}/${latestVital.diastolic}`;
+          latestVitalStatus = "normal";
+          if (latestVital.systolic > 140 || latestVital.diastolic > 90) {
+            latestVitalStatus = "warning";
+          }
+          if (latestVital.systolic > 180 || latestVital.diastolic > 120) {
+            latestVitalStatus = "critical";
+          }
+        }
+      }
 
       const services: any[] = [];
 
       for (const dep of deployments) {
-        // Count staff checked in today
-        const checkedIn = await db("attendance")
-          .where("deployment_id", dep.id)
-          .whereRaw("DATE(date) = CURDATE()")
-          .where("status", "checked_in")
-          .count("id as count")
-          .first();
-
         // Compute consumed days
         const startDate = new Date(dep.start_date);
         const now = new Date();
@@ -525,27 +553,6 @@ router.get(
             (now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
           ) + 1
         );
-
-        // Latest vitals for this patient
-        const latestVital = await db("vitals")
-          .where("patient_id", patientId)
-          .orderBy("recorded_at", "desc")
-          .first();
-
-        let latestVitalLabel = null;
-        let latestVitalStatus = null;
-        if (latestVital) {
-          if (latestVital.systolic && latestVital.diastolic) {
-            latestVitalLabel = `${latestVital.systolic}/${latestVital.diastolic}`;
-            latestVitalStatus = "normal";
-            if (latestVital.systolic > 140 || latestVital.diastolic > 90) {
-              latestVitalStatus = "warning";
-            }
-            if (latestVital.systolic > 180 || latestVital.diastolic > 120) {
-              latestVitalStatus = "critical";
-            }
-          }
-        }
 
         services.push({
           id: dep.id,
@@ -558,7 +565,7 @@ router.get(
           consumed_days: consumedDays,
           is_session_based: dep.is_session_based || false,
           total_staff: 1,
-          checked_in_staff: Number(checkedIn?.count || 0),
+          checked_in_staff: countMap[dep.id] || 0,
           latest_vital_label: latestVitalLabel,
           latest_vital_status: latestVitalStatus,
           daily_rate: dep.daily_rate || null,
@@ -572,7 +579,7 @@ router.get(
 
       res.json({ services });
     } catch (error: any) {
-      console.error("GET active-services error:", error.message);
+      logger.error("GET active-services error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch active services" });
     }
   }
@@ -618,7 +625,7 @@ router.get(
         available_to: assignment.available_to || "20:00",
       });
     } catch (error: any) {
-      console.error("GET health-manager error:", error.message);
+      logger.error("GET health-manager error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch health manager" });
     }
   }

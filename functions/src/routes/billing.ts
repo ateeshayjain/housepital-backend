@@ -4,20 +4,10 @@ import {
   verifyAuth,
   verifyPatientAccess,
 } from "../middleware/auth";
+import { parseJsonCol } from "../utils/helpers";
+import { logger } from "../utils/logger";
 
 const router = Router();
-
-function parseJsonCol(val: any): any {
-  if (val == null) return null;
-  if (typeof val === "string") {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return val;
-    }
-  }
-  return val;
-}
 
 // ── GET /patients/:patientId/billing ────────────────────────
 // Returns quick billing overview: amount_due + due_date
@@ -45,7 +35,9 @@ router.get(
         due_date: result?.due_date || null,
       });
     } catch (error: any) {
-      console.error("GET /patients/:patientId/billing error:", error.message);
+      logger.error("GET /patients/:patientId/billing error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch billing info" });
     }
   }
@@ -111,10 +103,9 @@ router.get(
         })),
       });
     } catch (error: any) {
-      console.error(
-        "GET /patients/:patientId/billing/summary error:",
-        error.message
-      );
+      logger.error("GET /patients/:patientId/billing/summary error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch billing summary" });
     }
   }
@@ -146,10 +137,9 @@ router.get(
 
       res.json({ invoices: formatted });
     } catch (error: any) {
-      console.error(
-        "GET /patients/:patientId/invoices error:",
-        error.message
-      );
+      logger.error("GET /patients/:patientId/invoices error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch invoices" });
     }
   }
@@ -180,7 +170,7 @@ router.get(
         },
       });
     } catch (error: any) {
-      console.error("GET /invoices/:id error:", error.message);
+      logger.error("GET /invoices/:id error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch invoice" });
     }
   }
@@ -211,10 +201,9 @@ router.get(
       const transactions = await query;
       res.json(transactions);
     } catch (error: any) {
-      console.error(
-        "GET /patients/:patientId/transactions error:",
-        error.message
-      );
+      logger.error("GET /patients/:patientId/transactions error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch transactions" });
     }
   }
@@ -240,7 +229,7 @@ router.get(
 
       res.json(transaction);
     } catch (error: any) {
-      console.error("GET /transactions/:id error:", error.message);
+      logger.error("GET /transactions/:id error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch transaction" });
     }
   }

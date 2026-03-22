@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from "uuid";
 import { getDb } from "../config/cloudSql";
 import { db as firestore } from "../config/firebase";
 import { AuthRequest, verifyAuth } from "../middleware/auth";
+import { logger } from "../utils/logger";
+import { validateBody, onboardingSchema } from "../utils/validators";
 
 const router = Router();
 
@@ -49,7 +51,7 @@ router.post("/verify-otp", verifyAuth, async (req: Request, res: Response) => {
       phone: authReq.phone,
     });
   } catch (error: any) {
-    console.error("verify-otp error:", error.message);
+    logger.error("verify-otp error", { error: error.message });
     res.status(500).json({ error: "Failed to verify user" });
   }
 });
@@ -61,28 +63,12 @@ router.post("/verify-otp", verifyAuth, async (req: Request, res: Response) => {
  */
 router.post("/onboarding", verifyAuth, async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
-  const {
-    name,
-    relationship,
-    preferred_language,
-    patient_name,
-    patient_age,
-    patient_gender,
-    patient_city,
-    patient_conditions,
-    patient_address,
-  } = req.body;
 
-  if (!name || !patient_name || !patient_city) {
-    res.status(400).json({
-      error: "name, patient_name, and patient_city are required",
-    });
-    return;
-  }
+  const data = validateBody(onboardingSchema, req.body);
 
   // Validate city
   const validCities = ["delhi", "faridabad", "gurgaon", "noida", "ghaziabad"];
-  if (!validCities.includes(patient_city.toLowerCase())) {
+  if (!validCities.includes(data.patient_city.toLowerCase())) {
     res.status(400).json({
       error: `Invalid city. Must be one of: ${validCities.join(", ")}`,
     });
@@ -102,43 +88,45 @@ router.post("/onboarding", verifyAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    // Create patient
     const patientId = uuidv4();
-    await db("patients").insert({
-      id: patientId,
-      name: patient_name,
-      age: patient_age || null,
-      gender: patient_gender || null,
-      conditions: JSON.stringify(patient_conditions || []),
-      city: patient_city.toLowerCase(),
-      address: patient_address || null,
-      emergency_contacts: JSON.stringify([]),
-      allergies: JSON.stringify([]),
-      medications: JSON.stringify([]),
-      created_at: new Date(),
-      updated_at: new Date(),
-    });
-
-    // Create family member (PRIMARY_CONTACT)
     const memberId = uuidv4();
-    await db("family_members").insert({
-      id: memberId,
-      user_id: authReq.uid,
-      patient_id: patientId,
-      name: name,
-      phone: authReq.phone,
-      relationship: relationship || "other",
-      role: "PRIMARY_CONTACT",
-      preferred_language: preferred_language || "en",
-      notification_preferences: JSON.stringify({
-        attendance: true,
-        vitals_alert: true,
-        daily_report: true,
-        payment_reminder: true,
-        booking_update: true,
-        weekly_summary: true,
-      }),
-      created_at: new Date(),
+
+    // Wrap patient + family_member creation in a transaction
+    await db.transaction(async (trx) => {
+      await trx("patients").insert({
+        id: patientId,
+        name: data.patient_name,
+        age: data.patient_age || null,
+        gender: data.patient_gender || null,
+        conditions: JSON.stringify(data.patient_conditions || []),
+        city: data.patient_city.toLowerCase(),
+        address: data.patient_address || null,
+        emergency_contacts: JSON.stringify([]),
+        allergies: JSON.stringify([]),
+        medications: JSON.stringify([]),
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      await trx("family_members").insert({
+        id: memberId,
+        user_id: authReq.uid,
+        patient_id: patientId,
+        name: data.name,
+        phone: authReq.phone,
+        relationship: data.relationship || "other",
+        role: "PRIMARY_CONTACT",
+        preferred_language: data.preferred_language || "en",
+        notification_preferences: JSON.stringify({
+          attendance: true,
+          vitals_alert: true,
+          daily_report: true,
+          payment_reminder: true,
+          booking_update: true,
+          weekly_summary: true,
+        }),
+        created_at: new Date(),
+      });
     });
 
     // Create user-patient mapping in Firestore for security rules
@@ -154,15 +142,15 @@ router.post("/onboarding", verifyAuth, async (req: Request, res: Response) => {
     res.status(201).json({
       user_id: memberId,
       patient_id: patientId,
-      name: name,
+      name: data.name,
       phone: authReq.phone,
       role: "PRIMARY_CONTACT",
-      preferred_language: preferred_language || "en",
+      preferred_language: data.preferred_language || "en",
       has_onboarded: true,
       patient: patient,
     });
   } catch (error: any) {
-    console.error("Onboarding error:", error.message);
+    logger.error("Onboarding error", { error: error.message });
     res.status(500).json({ error: "Failed to complete onboarding" });
   }
 });
@@ -206,7 +194,7 @@ router.post("/fcm-token", verifyAuth, async (req: Request, res: Response) => {
 
     res.json({ success: true });
   } catch (error: any) {
-    console.error("FCM token error:", error.message);
+    logger.error("FCM token error", { error: error.message });
     res.status(500).json({ error: "Failed to register FCM token" });
   }
 });

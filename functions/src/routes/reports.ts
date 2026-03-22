@@ -1,22 +1,10 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
 import { verifyAuth } from "../middleware/auth";
+import { parseJsonCol } from "../utils/helpers";
+import { logger } from "../utils/logger";
 
 const router = Router();
-
-// ── Helpers ──────────────────────────────────────────────────
-
-function parseJsonCol(val: any): any {
-  if (val == null) return null;
-  if (typeof val === "string") {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return val;
-    }
-  }
-  return val;
-}
 
 // ── GET /reports/:id ─────────────────────────────────────────
 
@@ -57,7 +45,7 @@ router.get(
         },
       });
     } catch (error: any) {
-      console.error("GET report detail error:", error.message);
+      logger.error("GET report detail error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch report" });
     }
   }

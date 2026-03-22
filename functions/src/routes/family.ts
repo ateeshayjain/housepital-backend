@@ -7,6 +7,7 @@ import {
   verifyPatientAccess,
   requirePrimary,
 } from "../middleware/auth";
+import { logger } from "../utils/logger";
 
 const router = Router();
 
@@ -35,7 +36,7 @@ router.get(
 
       res.json({ family_members: formatted });
     } catch (error: any) {
-      console.error("GET family error:", error.message);
+      logger.error("GET family error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch family members" });
     }
   }
@@ -97,7 +98,7 @@ router.post(
           : null,
       });
     } catch (error: any) {
-      console.error("POST family error:", error.message);
+      logger.error("POST family error", { error: error.message });
       res.status(500).json({ error: "Failed to add family member" });
     }
   }
@@ -123,7 +124,7 @@ router.post(
       // For now, just record the invitation
       res.json({ success: true });
     } catch (error: any) {
-      console.error("POST family/invite error:", error.message);
+      logger.error("POST family/invite error", { error: error.message });
       res.status(500).json({ error: "Failed to send invite" });
     }
   }
@@ -187,7 +188,7 @@ router.put(
           : null,
       });
     } catch (error: any) {
-      console.error("PUT family member error:", error.message);
+      logger.error("PUT family member error", { error: error.message });
       res.status(500).json({ error: "Failed to update family member" });
     }
   }
@@ -224,7 +225,7 @@ router.post(
       await db("family_members").where("id", memberId).delete();
       res.json({ success: true });
     } catch (error: any) {
-      console.error("POST family remove error:", error.message);
+      logger.error("POST family remove error", { error: error.message });
       res.status(500).json({ error: "Failed to remove family member" });
     }
   }
@@ -273,7 +274,7 @@ router.put(
       await db("family_members").where("id", memberId).delete();
       res.json({ success: true });
     } catch (error: any) {
-      console.error("PUT family remove (legacy) error:", error.message);
+      logger.error("PUT family remove (legacy) error", { error: error.message });
       res.status(500).json({ error: "Failed to remove family member" });
     }
   }

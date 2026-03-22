@@ -7,6 +7,8 @@ import {
   verifyPatientAccess,
   requirePrimary,
 } from "../middleware/auth";
+import { logger } from "../utils/logger";
+import { validateBody, createBookingSchema } from "../utils/validators";
 
 const router = Router();
 
@@ -29,25 +31,11 @@ router.post(
     const authReq = req as AuthRequest;
     const db = getDb();
 
-    const {
-      patient_id,
-      service_id,
-      scheduled_date,
-      scheduled_slot,
-      promo_code,
-    } = req.body;
-
-    if (!patient_id || !service_id || !scheduled_date || !scheduled_slot) {
-      res.status(400).json({
-        error:
-          "patient_id, service_id, scheduled_date, and scheduled_slot are required",
-      });
-      return;
-    }
+    const data = validateBody(createBookingSchema, req.body);
 
     try {
       // Verify patient access
-      if (patient_id !== authReq.patientId) {
+      if (data.patient_id !== authReq.patientId) {
         res
           .status(403)
           .json({ error: "You do not have access to this patient" });
@@ -56,7 +44,7 @@ router.post(
 
       // Get service details
       const service = await db("service_catalog")
-        .where("id", service_id)
+        .where("id", data.service_id)
         .first();
 
       if (!service) {
@@ -69,9 +57,9 @@ router.post(
       let discountAmount = 0;
 
       // Validate promo code if provided
-      if (promo_code) {
+      if (data.promo_code) {
         const coupon = await db("coupons")
-          .where("code", promo_code)
+          .where("code", data.promo_code)
           .where("is_active", true)
           .where("valid_from", "<=", new Date())
           .where("valid_until", ">=", new Date())
@@ -109,16 +97,16 @@ router.post(
       await db("bookings").insert({
         id: bookingId,
         booking_number: bookingNumber,
-        patient_id,
-        service_id,
+        patient_id: data.patient_id,
+        service_id: data.service_id,
         family_member_id: authReq.userId,
-        scheduled_date,
-        scheduled_slot,
+        scheduled_date: data.scheduled_date,
+        scheduled_slot: data.scheduled_slot,
         base_amount: baseAmount,
         discount_amount: discountAmount,
         gst_amount: gstAmount,
         total_amount: totalAmount,
-        promo_code: promo_code || null,
+        promo_code: data.promo_code || null,
         status: "pending",
         payment_status: "unpaid",
         created_at: new Date(),
@@ -128,7 +116,7 @@ router.post(
       const booking = await db("bookings").where("id", bookingId).first();
       res.status(201).json({ booking });
     } catch (error: any) {
-      console.error("POST /bookings error:", error.message);
+      logger.error("POST /bookings error", { error: error.message });
       res.status(500).json({ error: "Failed to create booking" });
     }
   }
@@ -166,7 +154,9 @@ router.get(
         page_size: pageSize,
       });
     } catch (error: any) {
-      console.error("GET /patients/:patientId/bookings error:", error.message);
+      logger.error("GET /patients/:patientId/bookings error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch bookings" });
     }
   }

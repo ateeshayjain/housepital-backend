@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
 import { AuthRequest, verifyAuth } from "../middleware/auth";
+import { logger } from "../utils/logger";
 
 const router = Router();
 
@@ -33,7 +34,7 @@ router.get("/", verifyAuth, async (req: Request, res: Response) => {
       page_size: pageSize,
     });
   } catch (error: any) {
-    console.error("GET /notifications error:", error.message);
+    logger.error("GET /notifications error", { error: error.message });
     res.status(500).json({ error: "Failed to fetch notifications" });
   }
 });
@@ -57,7 +58,7 @@ router.put("/:id/read", verifyAuth, async (req: Request, res: Response) => {
 
     res.json({ success: true });
   } catch (error: any) {
-    console.error("PUT /notifications/:id/read error:", error.message);
+    logger.error("PUT /notifications/:id/read error", { error: error.message });
     res.status(500).json({ error: "Failed to mark notification as read" });
   }
 });
@@ -76,7 +77,7 @@ router.put("/read-all", verifyAuth, async (req: Request, res: Response) => {
 
     res.json({ success: true });
   } catch (error: any) {
-    console.error("PUT /notifications/read-all error:", error.message);
+    logger.error("PUT /notifications/read-all error", { error: error.message });
     res.status(500).json({ error: "Failed to mark all notifications as read" });
   }
 });

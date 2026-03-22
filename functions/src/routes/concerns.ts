@@ -7,20 +7,11 @@ import {
   verifyPatientAccess,
   requirePrimary,
 } from "../middleware/auth";
+import { parseJsonCol } from "../utils/helpers";
+import { logger } from "../utils/logger";
+import { validateBody, raiseConcernSchema } from "../utils/validators";
 
 const router = Router();
-
-function parseJsonCol(val: any): any {
-  if (val == null) return null;
-  if (typeof val === "string") {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return val;
-    }
-  }
-  return val;
-}
 
 // ── POST /concerns ──────────────────────────────────────────
 
@@ -32,23 +23,9 @@ router.post(
     const authReq = req as AuthRequest;
     const db = getDb();
 
-    const {
-      patient_id,
-      category,
-      description,
-      urgency,
-      preferred_resolution,
-      evidence_urls,
-    } = req.body;
+    const data = validateBody(raiseConcernSchema, req.body);
 
-    if (!patient_id || !category || !description || !urgency) {
-      res.status(400).json({
-        error: "patient_id, category, description, and urgency are required",
-      });
-      return;
-    }
-
-    if (patient_id !== authReq.patientId) {
+    if (data.patient_id !== authReq.patientId) {
       res
         .status(403)
         .json({ error: "You do not have access to this patient" });
@@ -60,13 +37,13 @@ router.post(
 
       await db("family_concerns").insert({
         id: concernId,
-        patient_id,
+        patient_id: data.patient_id,
         family_member_id: authReq.userId,
-        category,
-        description,
-        urgency,
-        preferred_resolution: preferred_resolution || null,
-        evidence_urls: JSON.stringify(evidence_urls || []),
+        category: data.category,
+        description: data.description,
+        urgency: data.urgency,
+        preferred_resolution: data.preferred_resolution || null,
+        evidence_urls: JSON.stringify(data.evidence_urls || []),
         status: "open",
         created_at: new Date(),
         updated_at: new Date(),
@@ -83,7 +60,7 @@ router.post(
         },
       });
     } catch (error: any) {
-      console.error("POST /concerns error:", error.message);
+      logger.error("POST /concerns error", { error: error.message });
       res.status(500).json({ error: "Failed to raise concern" });
     }
   }
@@ -110,10 +87,9 @@ router.get(
 
       res.json({ concerns: formatted });
     } catch (error: any) {
-      console.error(
-        "GET /patients/:patientId/concerns error:",
-        error.message
-      );
+      logger.error("GET /patients/:patientId/concerns error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch concerns" });
     }
   }

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
 import { verifyAuth } from "../middleware/auth";
+import { logger } from "../utils/logger";
 
 const router = Router();
 
@@ -23,7 +24,7 @@ router.get("/", verifyAuth, async (_req: Request, res: Response) => {
 
     res.json({ services: formatted });
   } catch (error: any) {
-    console.error("GET /services error:", error.message);
+    logger.error("GET /services error", { error: error.message });
     res.status(500).json({ error: "Failed to fetch services" });
   }
 });
@@ -51,7 +52,7 @@ router.get("/:id", verifyAuth, async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error("GET /services/:id error:", error.message);
+    logger.error("GET /services/:id error", { error: error.message });
     res.status(500).json({ error: "Failed to fetch service" });
   }
 });

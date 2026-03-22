@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
 import { verifyAuth } from "../middleware/auth";
+import { logger } from "../utils/logger";
 
 const router = Router();
 
@@ -46,7 +47,7 @@ router.get("/", verifyAuth, async (req: Request, res: Response) => {
       page_size: pageSize,
     });
   } catch (error: any) {
-    console.error("GET /equipment error:", error.message);
+    logger.error("GET /equipment error", { error: error.message });
     res.status(500).json({ error: "Failed to fetch equipment" });
   }
 });

@@ -7,20 +7,10 @@ import {
   verifyPatientAccess,
   requirePrimary,
 } from "../middleware/auth";
+import { parseJsonCol } from "../utils/helpers";
+import { logger } from "../utils/logger";
 
 const router = Router();
-
-function parseJsonCol(val: any): any {
-  if (val == null) return null;
-  if (typeof val === "string") {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return val;
-    }
-  }
-  return val;
-}
 
 function formatMedication(row: any): any {
   return {
@@ -47,10 +37,9 @@ router.get(
 
       res.json({ medications: medications.map(formatMedication) });
     } catch (error: any) {
-      console.error(
-        "GET /patients/:patientId/medications error:",
-        error.message
-      );
+      logger.error("GET /patients/:patientId/medications error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch medications" });
     }
   }
@@ -110,10 +99,9 @@ router.post(
 
       res.status(201).json(formatMedication(medication));
     } catch (error: any) {
-      console.error(
-        "POST /patients/:patientId/medications error:",
-        error.message
-      );
+      logger.error("POST /patients/:patientId/medications error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to add medication" });
     }
   }
@@ -172,10 +160,9 @@ router.put(
 
       res.json(formatMedication(updated));
     } catch (error: any) {
-      console.error(
-        "PUT /patients/:patientId/medications/:id error:",
-        error.message
-      );
+      logger.error("PUT /patients/:patientId/medications/:id error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to update medication" });
     }
   }
@@ -210,10 +197,9 @@ router.delete(
 
       res.json({ success: true });
     } catch (error: any) {
-      console.error(
-        "DELETE /patients/:patientId/medications/:id error:",
-        error.message
-      );
+      logger.error("DELETE /patients/:patientId/medications/:id error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to delete medication" });
     }
   }
@@ -245,10 +231,9 @@ router.get(
 
       res.json({ logs });
     } catch (error: any) {
-      console.error(
-        "GET /patients/:patientId/medication-logs error:",
-        error.message
-      );
+      logger.error("GET /patients/:patientId/medication-logs error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to fetch medication logs" });
     }
   }
@@ -289,10 +274,9 @@ router.put(
 
       res.json({ success: true });
     } catch (error: any) {
-      console.error(
-        "PUT /patients/:patientId/medications/:id/stock error:",
-        error.message
-      );
+      logger.error("PUT /patients/:patientId/medications/:id/stock error", {
+        error: error.message,
+      });
       res.status(500).json({ error: "Failed to update stock" });
     }
   }
