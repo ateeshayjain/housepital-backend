@@ -5,8 +5,12 @@ import helmet from "helmet";
 
 // Import route handlers
 import authRoutes from "./routes/auth";
-// Phase 2+: uncomment as routes are built
-// import patientRoutes from "./routes/patients";
+import patientRoutes from "./routes/patients";
+import deploymentRoutes from "./routes/deployments";
+import staffRoutes from "./routes/staff";
+import reportRoutes from "./routes/reports";
+import familyRoutes from "./routes/family";
+// Phase 3+: uncomment as routes are built
 // import serviceRoutes from "./routes/services";
 // import bookingRoutes from "./routes/bookings";
 // import assessmentRoutes from "./routes/assessments";
@@ -17,9 +21,7 @@ import authRoutes from "./routes/auth";
 // import notificationRoutes from "./routes/notifications";
 // import equipmentRoutes from "./routes/equipment";
 // import medicationRoutes from "./routes/medications";
-// import deploymentRoutes from "./routes/deployments";
 // import couponRoutes from "./routes/coupons";
-// import familyRoutes from "./routes/family";
 
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -44,8 +46,12 @@ app.get("/health", (_req, res) => {
 // ── Routes ───────────────────────────────────────────────────
 
 app.use("/auth", authRoutes);
-// Phase 2+: uncomment as routes are built
-// app.use("/patients", patientRoutes);
+app.use("/patients", patientRoutes);
+app.use("/deployments", deploymentRoutes);
+app.use("/staff", staffRoutes);
+app.use("/reports", reportRoutes);
+app.use("/", familyRoutes); // family routes mount at /patients/:patientId/family AND /family/:memberId
+// Phase 3+: uncomment as routes are built
 // app.use("/services", serviceRoutes);
 // app.use("/bookings", bookingRoutes);
 // app.use("/assessments", assessmentRoutes);
@@ -56,9 +62,7 @@ app.use("/auth", authRoutes);
 // app.use("/notifications", notificationRoutes);
 // app.use("/equipment", equipmentRoutes);
 // app.use("/medications", medicationRoutes);
-// app.use("/deployments", deploymentRoutes);
 // app.use("/coupons", couponRoutes);
-// app.use("/family", familyRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
