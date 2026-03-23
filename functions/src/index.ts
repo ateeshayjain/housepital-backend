@@ -24,6 +24,7 @@ import medicationRoutes from "./routes/medications";
 import couponRoutes from "./routes/coupons";
 
 import { errorHandler } from "./middleware/errorHandler";
+import { correlationId } from "./middleware/correlationId";
 
 // ── Rate Limiters ───────────────────────────────────────────
 
@@ -64,6 +65,7 @@ const allowedOrigins = [
 const app = express();
 
 // Security & parsing
+app.use(correlationId);
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(
   cors({
@@ -76,7 +78,7 @@ app.use(
     },
   })
 );
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "1mb" }));
 
 // Health check
 app.get("/health", (_req, res) => {

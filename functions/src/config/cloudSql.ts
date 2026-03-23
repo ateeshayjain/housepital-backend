@@ -27,6 +27,8 @@ export function getDb(): Knex {
       idleTimeoutMillis: 30000,
       acquireTimeoutMillis: 10000,
     },
+    // Query timeout: abort queries that run longer than 30 seconds
+    acquireConnectionTimeout: 10000,
     // Timezone handling for IST
     migrations: {
       directory: "../../sql",
