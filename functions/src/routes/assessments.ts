@@ -8,6 +8,7 @@ import {
   requirePrimary,
 } from "../middleware/auth";
 import { logger } from "../utils/logger";
+import { validateBody, createAssessmentSchema } from "../utils/validators";
 
 const router = Router();
 
@@ -26,14 +27,8 @@ router.post(
     const authReq = req as AuthRequest;
     const db = getDb();
 
-    const { patient_id, service_category, questionnaire_responses } = req.body;
-
-    if (!patient_id || !service_category) {
-      res.status(400).json({
-        error: "patient_id and service_category are required",
-      });
-      return;
-    }
+    const data = validateBody(createAssessmentSchema, req.body);
+    const { patient_id, service_category, questionnaire_responses } = data;
 
     try {
       if (patient_id !== authReq.patientId) {

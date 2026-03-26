@@ -8,6 +8,7 @@ import {
   requirePrimary,
 } from "../middleware/auth";
 import { logger } from "../utils/logger";
+import { validateBody, addFamilyMemberSchema } from "../utils/validators";
 
 const router = Router();
 
@@ -52,15 +53,8 @@ router.post(
   async (req: Request, res: Response) => {
     const db = getDb();
     const patientId = req.params.patientId;
-    const { name, phone, email, relationship, role, preferred_language } =
-      req.body;
-
-    if (!name || !phone || !relationship) {
-      res
-        .status(400)
-        .json({ error: "name, phone, and relationship are required" });
-      return;
-    }
+    const data = validateBody(addFamilyMemberSchema, req.body);
+    const { name, phone, email, relationship, role, preferred_language } = data;
 
     try {
       const memberId = uuidv4();

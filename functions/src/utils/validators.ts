@@ -54,6 +54,44 @@ export const onboardingSchema = z.object({
   patient_address: z.string().optional(),
 });
 
+export const addMedicationSchema = z.object({
+  name: z.string().min(1).max(255),
+  dosage: z.string().max(100).optional(),
+  frequency: z.string().optional(),
+  schedule_times: z.array(z.string()).optional(),
+  instructions: z.string().max(1000).optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  stock_count: z.number().int().min(0).optional(),
+  low_stock_threshold: z.number().int().min(0).optional(),
+});
+
+export const addFamilyMemberSchema = z.object({
+  name: z.string().min(1).max(255),
+  phone: z.string().min(10).max(20),
+  email: z.string().email().optional().or(z.literal("")),
+  relationship: z.string().min(1),
+  role: z.enum(["PRIMARY_CONTACT", "FAMILY_MEMBER", "PATIENT_SELF"]).optional(),
+  preferred_language: z.enum(["en", "hi"]).optional(),
+});
+
+export const createAssessmentSchema = z.object({
+  patient_id: z.string(),
+  service_category: z.string().min(1),
+  questionnaire_responses: z.record(z.unknown()).optional(),
+});
+
+export const validateCouponSchema = z.object({
+  code: z.string().min(1),
+  category: z.string().min(1),
+  order_amount: z.number().min(0),
+});
+
+export const fcmTokenSchema = z.object({
+  token: z.string().min(1),
+  device_type: z.string().optional(),
+});
+
 // ── Validation helper ────────────────────────────────────────
 
 export function validateBody<T>(schema: z.ZodSchema<T>, body: unknown): T {

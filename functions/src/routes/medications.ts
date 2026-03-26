@@ -9,6 +9,7 @@ import {
 } from "../middleware/auth";
 import { parseJsonCol } from "../utils/helpers";
 import { logger } from "../utils/logger";
+import { validateBody, addMedicationSchema } from "../utils/validators";
 
 const router = Router();
 
@@ -56,6 +57,7 @@ router.post(
     const db = getDb();
     const patientId = req.params.patientId;
 
+    const data = validateBody(addMedicationSchema, req.body);
     const {
       name,
       dosage,
@@ -66,12 +68,7 @@ router.post(
       end_date,
       stock_count,
       low_stock_threshold,
-    } = req.body;
-
-    if (!name) {
-      res.status(400).json({ error: "name is required" });
-      return;
-    }
+    } = data;
 
     try {
       const medicationId = uuidv4();

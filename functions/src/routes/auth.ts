@@ -4,7 +4,7 @@ import { getDb } from "../config/cloudSql";
 import { db as firestore } from "../config/firebase";
 import { AuthRequest, verifyAuth } from "../middleware/auth";
 import { logger } from "../utils/logger";
-import { validateBody, onboardingSchema } from "../utils/validators";
+import { validateBody, onboardingSchema, fcmTokenSchema } from "../utils/validators";
 
 const router = Router();
 
@@ -161,12 +161,8 @@ router.post("/onboarding", verifyAuth, async (req: Request, res: Response) => {
  */
 router.post("/fcm-token", verifyAuth, async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
-  const { token, device_type } = req.body;
-
-  if (!token) {
-    res.status(400).json({ error: "FCM token is required" });
-    return;
-  }
+  const data = validateBody(fcmTokenSchema, req.body);
+  const { token, device_type } = data;
 
   const db = getDb();
 

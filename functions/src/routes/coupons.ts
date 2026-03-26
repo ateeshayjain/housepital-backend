@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
 import { verifyAuth } from "../middleware/auth";
 import { logger } from "../utils/logger";
+import { validateBody, validateCouponSchema } from "../utils/validators";
 
 const router = Router();
 
@@ -10,14 +11,8 @@ const router = Router();
 router.post("/validate", verifyAuth, async (req: Request, res: Response) => {
   const db = getDb();
 
-  const { code, category, order_amount } = req.body;
-
-  if (!code || !category || order_amount == null) {
-    res.status(400).json({
-      error: "code, category, and order_amount are required",
-    });
-    return;
-  }
+  const data = validateBody(validateCouponSchema, req.body);
+  const { code, category, order_amount } = data;
 
   try {
     const coupon = await db("coupons")
