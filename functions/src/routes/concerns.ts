@@ -38,7 +38,7 @@ router.post(
       await db("family_concerns").insert({
         id: concernId,
         patient_id: data.patient_id,
-        family_member_id: authReq.userId,
+        raised_by: authReq.userId,
         category: data.category,
         description: data.description,
         urgency: data.urgency,

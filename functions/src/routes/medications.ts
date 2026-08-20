@@ -16,7 +16,7 @@ const router = Router();
 function formatMedication(row: any): any {
   return {
     ...row,
-    schedule_times: parseJsonCol(row.schedule_times),
+    time_slots: parseJsonCol(row.time_slots),
     instructions: parseJsonCol(row.instructions),
   };
 }
@@ -62,12 +62,19 @@ router.post(
       name,
       dosage,
       frequency,
-      schedule_times,
+      // Column names follow the SCHEMA, which is also what
+      // MedicationFull.toJson() on the client serialises. This route used
+      // `schedule_times` / `start_date` / `low_stock_threshold` — none of
+      // which exist in `medications`, so every create and update returned a
+      // 500 on an unknown column. Renaming the COLUMN instead would have
+      // broken the Flutter client, which already speaks time_slots /
+      // prescribed_date.
+      time_slots,
       instructions,
-      start_date,
+      prescribed_date,
       end_date,
       stock_count,
-      low_stock_threshold,
+      reminders_enabled,
     } = data;
 
     try {
@@ -79,12 +86,12 @@ router.post(
         name,
         dosage: dosage || null,
         frequency: frequency || null,
-        schedule_times: JSON.stringify(schedule_times || []),
+        time_slots: JSON.stringify(time_slots || []),
         instructions: JSON.stringify(instructions || null),
-        start_date: start_date || null,
+        prescribed_date: prescribed_date || null,
         end_date: end_date || null,
         stock_count: stock_count || 0,
-        low_stock_threshold: low_stock_threshold || 5,
+        reminders_enabled: reminders_enabled ?? true,
         is_active: true,
         created_at: new Date(),
         updated_at: new Date(),
@@ -131,13 +138,14 @@ router.put(
         "name",
         "dosage",
         "frequency",
-        "start_date",
+        "prescribed_date",
         "end_date",
         "stock_count",
-        "low_stock_threshold",
+        "stock_unit",
+        "reminders_enabled",
         "is_active",
       ];
-      const jsonFields = ["schedule_times", "instructions"];
+      const jsonFields = ["time_slots", "instructions"];
 
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
@@ -214,14 +222,27 @@ router.get(
     const date = req.query.date as string | undefined;
 
     try {
+      // medication_logs has no patient_id — a log belongs to a MEDICATION,
+      // and the medication belongs to the patient. Filtering on a column that
+      // does not exist made this endpoint a guaranteed 500; joining is also
+      // the correct scoping, because it cannot return a log whose medication
+      // belongs to someone else.
       let query = db("medication_logs")
-        .where("patient_id", patientId)
-        .orderBy("scheduled_time", "desc");
+        .join(
+          "medications",
+          "medication_logs.medication_id",
+          "medications.id"
+        )
+        .where("medications.patient_id", patientId)
+        .select("medication_logs.*", "medications.name as medication_name")
+        .orderBy("medication_logs.scheduled_time", "desc");
 
       if (date) {
-        query = query.whereRaw("DATE(scheduled_time) = ?", [date]);
+        query = query.whereRaw(
+          "DATE(medication_logs.scheduled_time) = ?", [date]);
       } else {
-        query = query.whereRaw("DATE(scheduled_time) = CURDATE()");
+        query = query.whereRaw(
+          "DATE(medication_logs.scheduled_time) = CURDATE()");
       }
 
       const logs = await query;

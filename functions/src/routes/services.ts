@@ -13,7 +13,7 @@ router.get("/", verifyAuth, async (_req: Request, res: Response) => {
   try {
     const services = await db("service_catalog")
       .where("is_active", true)
-      .orderBy("sort_order", "asc");
+      .orderBy("display_order", "asc");
 
     const formatted = services.map((s: any) => ({
       ...s,

@@ -8,8 +8,14 @@ export interface AuthRequest extends Request {
   uid: string;
   phone: string;
   userId: string; // family_members.id
-  patientId: string; // family_members.patient_id
+  patientId: string; // family_members.patient_id ("" when not onboarded)
   role: "PRIMARY_CONTACT" | "FAMILY_MEMBER" | "PATIENT_SELF";
+  /**
+   * False when the caller authenticated with Firebase but has no
+   * family_members row yet. Such a request carries NO patient context and
+   * must not reach any patient-scoped route — only onboarding.
+   */
+  onboarded: boolean;
 }
 
 /**
@@ -49,6 +55,7 @@ export async function verifyAuth(
       (req as AuthRequest).userId = "";
       (req as AuthRequest).patientId = "";
       (req as AuthRequest).role = "FAMILY_MEMBER";
+      (req as AuthRequest).onboarded = false;
       next();
       return;
     }
@@ -59,6 +66,7 @@ export async function verifyAuth(
     (req as AuthRequest).userId = user.id;
     (req as AuthRequest).patientId = user.patient_id;
     (req as AuthRequest).role = user.role;
+    (req as AuthRequest).onboarded = true;
 
     next();
   } catch (error: any) {
@@ -102,9 +110,47 @@ export function verifyPatientAccess(
   const authReq = req as AuthRequest;
   const patientId = req.params.patientId || req.params.id;
 
-  if (patientId && authReq.patientId && patientId !== authReq.patientId) {
+  // FAILS CLOSED. The previous version was:
+  //
+  //   if (patientId && authReq.patientId && patientId !== authReq.patientId)
+  //
+  // which denies only when BOTH ids are present AND differ — every other
+  // combination fell through to next(). The dangerous combination was an
+  // empty authReq.patientId, and verifyAuth hands out exactly that: a
+  // Firebase-authenticated caller with no family_members row gets
+  // `patientId = ""` so they can reach onboarding. That blank claim then
+  // satisfied this guard for EVERY patient id in the system.
+  //
+  // Firebase phone auth is open to anyone with a phone number, so the
+  // practical effect was: sign in, never onboard, and read any patient's
+  // medications, invoices, vitals, reports, concerns and family list by
+  // guessing or enumerating an id. The guard was weakest exactly where the
+  // caller's identity was least established.
+  //
+  // An authorisation predicate must read "allow if proven", never "deny if
+  // disproven". All three conditions below are required.
+  if (!authReq.onboarded || !authReq.patientId) {
+    res.status(403).json({
+      error: "Your account is not linked to a patient yet",
+    });
+    return;
+  }
+
+  if (!patientId) {
+    // A route mounted this middleware without declaring :patientId or :id.
+    // That is a wiring mistake, and the safe response to a guard that cannot
+    // evaluate is refusal, not passage.
+    logger.error("verifyPatientAccess mounted on a route with no patient id", {
+      path: req.originalUrl,
+    });
     res.status(403).json({ error: "You do not have access to this patient" });
     return;
   }
+
+  if (patientId !== authReq.patientId) {
+    res.status(403).json({ error: "You do not have access to this patient" });
+    return;
+  }
+
   next();
 }

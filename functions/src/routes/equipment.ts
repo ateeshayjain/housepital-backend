@@ -17,13 +17,24 @@ router.get("/", verifyAuth, async (req: Request, res: Response) => {
   const offset = (page - 1) * pageSize;
 
   try {
-    let query = db("equipment_catalog").where("is_active", true);
+    // `equipment_catalog` has no is_active / type column. It has `status`
+    // ('Active'/'Inactive') and the two availability booleans, which is also
+    // how the Flutter client models an item — EquipmentItem.type is a DERIVED
+    // getter (availableForRent ? 'Rental' : 'Sale'), never a stored field.
+    // Querying the phantom columns made this listing a guaranteed 500, so the
+    // equipment catalog has never loaded from the API.
+    let query = db("equipment_catalog").where("status", "Active");
 
     if (category) {
       query = query.where("category", category);
     }
     if (type) {
-      query = query.where("type", type);
+      const t = type.toLowerCase();
+      if (t === "rental" || t === "rent") {
+        query = query.where("available_for_rent", true);
+      } else if (t === "sale" || t === "buy") {
+        query = query.where("available_for_sale", true);
+      }
     }
     if (search && search.trim()) {
       query = query.where(function () {

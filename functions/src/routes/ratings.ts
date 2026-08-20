@@ -34,7 +34,7 @@ router.post(
       // Check for existing rating today for this deployment
       const existing = await db("daily_ratings")
         .where("deployment_id", data.deployment_id)
-        .where("family_member_id", authReq.userId)
+        .where("rated_by", authReq.userId)
         .whereRaw("DATE(created_at) = CURDATE()")
         .first();
 
@@ -51,7 +51,7 @@ router.post(
         id: ratingId,
         patient_id: data.patient_id,
         deployment_id: data.deployment_id,
-        family_member_id: authReq.userId,
+        rated_by: authReq.userId,
         rating: data.rating,
         comment: data.comment || null,
         created_at: new Date(),
