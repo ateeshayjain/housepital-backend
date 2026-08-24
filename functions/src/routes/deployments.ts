@@ -3,6 +3,10 @@ import { getDb } from "../config/cloudSql";
 import { verifyAuth } from "../middleware/auth";
 import { parseJsonCol } from "../utils/helpers";
 import { logger } from "../utils/logger";
+import {
+  classifyVital,
+  classifyBloodPressure,
+} from "../utils/vitalClassifier";
 
 const router = Router();
 
@@ -124,33 +128,17 @@ router.get(
           .filter(Boolean)
           .reverse();
 
-        const bpStatus =
-          latest.systolic > 180 || latest.diastolic > 120
-            ? "critical"
-            : latest.systolic > 140 || latest.diastolic > 90
-            ? "warning"
-            : "normal";
-
-        const spo2Status =
-          latest.spo2 < 90
-            ? "critical"
-            : latest.spo2 < 95
-            ? "warning"
-            : "normal";
-
-        const pulseStatus =
-          latest.pulse > 120 || latest.pulse < 50
-            ? "critical"
-            : latest.pulse > 100 || latest.pulse < 60
-            ? "warning"
-            : "normal";
-
-        const tempStatus =
-          latest.temperature > 103
-            ? "critical"
-            : latest.temperature > 100
-            ? "warning"
-            : "normal";
+        // Delegated to the shared classifier. These four used to be inline
+        // ternaries with their own thresholds — the app's FOURTH set — and
+        // the client re-classifies the same reading with the canonical table,
+        // so one reading was scored twice and could come back two different
+        // colours. The inline temperature check only ever compared upward, so
+        // a hypothermic 95F was reported to the family as "normal".
+        // See utils/vitalClassifier.ts.
+        const bpStatus = classifyBloodPressure(latest.systolic, latest.diastolic);
+        const spo2Status = classifyVital("spo2", latest.spo2);
+        const pulseStatus = classifyVital("pulse", latest.pulse);
+        const tempStatus = classifyVital("temperature", latest.temperature);
 
         vitalsSummary = {
           bp: {
