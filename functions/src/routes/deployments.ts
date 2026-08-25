@@ -1,8 +1,13 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
-import { verifyAuth } from "../middleware/auth";
+import { AuthRequest, verifyAuth } from "../middleware/auth";
 import { parseJsonCol } from "../utils/helpers";
 import { logger } from "../utils/logger";
+import { v4 as uuidv4 } from "uuid";
+import {
+  validateBody,
+  staffReplacementSchema,
+} from "../utils/validators";
 import {
   classifyVital,
   classifyBloodPressure,
@@ -271,6 +276,85 @@ router.get(
         error: error.message,
       });
       res.status(500).json({ error: "Failed to fetch attendance" });
+    }
+  }
+);
+
+
+// ── POST /deployments/:id/replacement ───────────────────────
+//
+// THE ONLY CONTROL IN THIS APP FOR REMOVING A CAREGIVER FROM A HOME.
+//
+// The audit graded it Fail with "the only removal control is wired to a 404".
+// A family that wants a particular person to stop coming tapped it, the POST
+// failed, the client caught the error, and the screen said the request was
+// sent. Nothing anywhere recorded that they asked.
+//
+// That is the worst possible failure for this specific button. The reasons a
+// family asks for a different caregiver are rarely administrative, and a
+// silent drop means the person they wanted removed keeps arriving while they
+// believe it is being handled.
+//
+// An open request is therefore idempotent rather than duplicated: asking
+// twice must not create a second ticket that splits the coordinator's
+// attention, but it must also never be reported as failure.
+router.post(
+  "/:id/replacement",
+  verifyAuth,
+  async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    const db = getDb();
+    const data = validateBody(staffReplacementSchema, req.body);
+
+    try {
+      const deployment = await db("deployments")
+        .where("id", req.params.id)
+        .where("patient_id", authReq.patientId)
+        .first();
+
+      if (!deployment) {
+        res.status(404).json({ error: "Deployment not found" });
+        return;
+      }
+
+      const existing = await db("staff_replacement_requests")
+        .where("deployment_id", req.params.id)
+        .whereIn("status", ["open", "acknowledged"])
+        .first();
+
+      if (existing) {
+        res.status(200).json({
+          id: existing.id,
+          status: existing.status,
+          already_open: true,
+        });
+        return;
+      }
+
+      const id = uuidv4();
+      await db("staff_replacement_requests").insert({
+        id,
+        deployment_id: req.params.id,
+        patient_id: authReq.patientId,
+        staff_id: deployment.staff_id || null,
+        requested_by: authReq.userId,
+        reason: data.reason,
+        details: data.details || null,
+        status: "open",
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      logger.info("Staff replacement requested", {
+        deployment_id: req.params.id,
+      });
+
+      res.status(201).json({ id, status: "open", already_open: false });
+    } catch (error: any) {
+      logger.error("POST /deployments/:id/replacement error", {
+        error: error.message,
+      });
+      res.status(500).json({ error: "Failed to submit replacement request" });
     }
   }
 );

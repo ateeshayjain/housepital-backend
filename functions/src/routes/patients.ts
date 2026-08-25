@@ -8,6 +8,8 @@ import {
 } from "../middleware/auth";
 import { parseJsonCol } from "../utils/helpers";
 import { logger } from "../utils/logger";
+import { v4 as uuidv4 } from "uuid";
+import { validateBody, recordVitalsSchema } from "../utils/validators";
 
 const router = Router();
 
@@ -627,6 +629,55 @@ router.get(
     } catch (error: any) {
       logger.error("GET health-manager error", { error: error.message });
       res.status(500).json({ error: "Failed to fetch health manager" });
+    }
+  }
+);
+
+// ── POST /patients/:id/vitals ───────────────────────────────
+//
+// The vitals entry sheet in the app has never had a destination. It writes to
+// the local provider and the reading dies with the install — which is also why
+// the trend charts fall back to a generated sample series.
+//
+// recorded_by_type matters clinically: a family member's home cuff and a
+// nurse's device are not the same evidence, and a doctor reading the trend
+// needs to be able to tell them apart. Anything written through this route is
+// 'family' or 'patient', never 'staff'.
+router.post(
+  "/:id/vitals",
+  verifyAuth,
+  verifyPatientAccess,
+  async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    const db = getDb();
+    const data = validateBody(recordVitalsSchema, req.body);
+
+    try {
+      const id = uuidv4();
+      await db("vitals").insert({
+        id,
+        patient_id: req.params.id,
+        recorded_at: data.recorded_at ? new Date(data.recorded_at) : new Date(),
+        systolic: data.systolic ?? null,
+        diastolic: data.diastolic ?? null,
+        pulse: data.pulse ?? null,
+        spo2: data.spo2 ?? null,
+        temperature: data.temperature ?? null,
+        sugar: data.sugar ?? null,
+        notes: data.notes || null,
+        recorded_by_type:
+          authReq.role === "PATIENT_SELF" ? "patient" : "family",
+        recorded_by: authReq.userId,
+        created_at: new Date(),
+      });
+
+      const row = await db("vitals").where("id", id).first();
+      res.status(201).json(row);
+    } catch (error: any) {
+      logger.error("POST /patients/:id/vitals error", {
+        error: error.message,
+      });
+      res.status(500).json({ error: "Failed to record vitals" });
     }
   }
 );

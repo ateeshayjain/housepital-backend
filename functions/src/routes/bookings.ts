@@ -8,7 +8,12 @@ import {
   requirePrimary,
 } from "../middleware/auth";
 import { logger } from "../utils/logger";
-import { validateBody, createBookingSchema } from "../utils/validators";
+import {
+  validateBody,
+  createBookingSchema,
+  cancelBookingSchema,
+  rateBookingSchema,
+} from "../utils/validators";
 
 const router = Router();
 
@@ -158,6 +163,102 @@ router.get(
         error: error.message,
       });
       res.status(500).json({ error: "Failed to fetch bookings" });
+    }
+  }
+);
+
+
+// ── POST /bookings/:id/cancel ───────────────────────────────
+//
+// The cancel button existed; the route did not. A family that cancelled a
+// visit saw it disappear from their screen while the booking stayed live on
+// the CRM and the nurse still arrived.
+//
+// Scoped by patient, not just by booking id: without the ownership check any
+// authenticated caller could cancel any booking by guessing an id.
+router.post(
+  "/bookings/:id/cancel",
+  verifyAuth,
+  requirePrimary,
+  async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    const db = getDb();
+    const data = validateBody(cancelBookingSchema, req.body);
+
+    try {
+      const booking = await db("bookings")
+        .where("id", req.params.id)
+        .where("patient_id", authReq.patientId)
+        .first();
+
+      if (!booking) {
+        res.status(404).json({ error: "Booking not found" });
+        return;
+      }
+      // Terminal states are terminal. Cancelling a completed visit would
+      // rewrite history, and cancelling twice would overwrite the first
+      // reason and timestamp.
+      if (["completed", "cancelled", "no_show"].includes(booking.status)) {
+        res.status(409).json({
+          error: `This booking is already ${booking.status} and cannot be cancelled`,
+        });
+        return;
+      }
+
+      await db("bookings").where("id", req.params.id).update({
+        status: "cancelled",
+        cancellation_reason: data.reason || null,
+        cancelled_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      res.json({ success: true, id: req.params.id, status: "cancelled" });
+    } catch (error: any) {
+      logger.error("POST /bookings/:id/cancel error", { error: error.message });
+      res.status(500).json({ error: "Failed to cancel booking" });
+    }
+  }
+);
+
+// ── POST /bookings/:id/rate ─────────────────────────────────
+//
+// Rating a visit wrote nowhere. `bookings.rating` and `rating_comment` have
+// existed since 001 with nothing ever setting them.
+router.post(
+  "/bookings/:id/rate",
+  verifyAuth,
+  async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    const db = getDb();
+    const data = validateBody(rateBookingSchema, req.body);
+
+    try {
+      const booking = await db("bookings")
+        .where("id", req.params.id)
+        .where("patient_id", authReq.patientId)
+        .first();
+
+      if (!booking) {
+        res.status(404).json({ error: "Booking not found" });
+        return;
+      }
+      if (booking.status !== "completed") {
+        res.status(409).json({
+          error: "Only a completed booking can be rated",
+        });
+        return;
+      }
+
+      await db("bookings").where("id", req.params.id).update({
+        rating: Math.round(data.rating),
+        rating_comment: data.comment || null,
+        updated_at: new Date(),
+      });
+
+      res.json({ success: true, id: req.params.id, rating: data.rating });
+    } catch (error: any) {
+      logger.error("POST /bookings/:id/rate error", { error: error.message });
+      res.status(500).json({ error: "Failed to rate booking" });
     }
   }
 );
