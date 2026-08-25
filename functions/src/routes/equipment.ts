@@ -1,7 +1,12 @@
 import { Router, Request, Response } from "express";
 import { getDb } from "../config/cloudSql";
-import { verifyAuth } from "../middleware/auth";
+import { AuthRequest, verifyAuth } from "../middleware/auth";
 import { logger } from "../utils/logger";
+import { v4 as uuidv4 } from "uuid";
+import {
+  validateBody,
+  equipmentReviewSchema,
+} from "../utils/validators";
 
 const router = Router();
 
@@ -62,5 +67,113 @@ router.get("/", verifyAuth, async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to fetch equipment" });
   }
 });
+
+
+// ── GET /equipment/:id/reviews ──────────────────────────────
+//
+// The review list and its composer are on every equipment item. Neither had a
+// route: the GET returned nothing so the list rendered from a local array,
+// and the POST failed into a catch that printed "Thank you for your review!"
+//
+// Only `published` rows are returned, and no author id leaves the server —
+// what a reviewer is called in public is a stored display name, never
+// re-derived from the patient record.
+router.get(
+  "/:id/reviews",
+  verifyAuth,
+  async (req: Request, res: Response) => {
+    const db = getDb();
+    try {
+      const rows = await db("equipment_reviews")
+        .where("equipment_id", req.params.id)
+        .where("status", "published")
+        .orderBy("created_at", "desc")
+        .limit(50);
+
+      res.json({
+        reviews: rows.map((r: any) => ({
+          id: r.id,
+          user_name: r.display_name || "Housepital customer",
+          rating: Number(r.rating),
+          text: r.text || null,
+          date: r.created_at,
+        })),
+      });
+    } catch (error: any) {
+      logger.error("GET /equipment/:id/reviews error", {
+        error: error.message,
+      });
+      res.status(500).json({ error: "Failed to load reviews" });
+    }
+  }
+);
+
+// ── POST /equipment/:id/reviews ─────────────────────────────
+//
+// One review per person per item, enforced by a unique key AND by an upsert
+// here — a second submission edits the first rather than erroring, because
+// the alternative is a dead button with no explanation.
+router.post(
+  "/:id/reviews",
+  verifyAuth,
+  async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    const db = getDb();
+    const data = validateBody(equipmentReviewSchema, req.body);
+
+    try {
+      const item = await db("equipment_catalog")
+        .where("id", req.params.id)
+        .first();
+      if (!item) {
+        res.status(404).json({ error: "Equipment item not found" });
+        return;
+      }
+
+      const author = await db("family_members")
+        .where("id", authReq.userId)
+        .first();
+      // First name only. A review is public; a full name on a healthcare
+      // product is more disclosure than anyone intends when they tap submit.
+      const displayName = (author?.name || "").trim().split(/\s+/)[0] || null;
+
+      const existing = await db("equipment_reviews")
+        .where("equipment_id", req.params.id)
+        .where("author_id", authReq.userId)
+        .first();
+
+      if (existing) {
+        await db("equipment_reviews").where("id", existing.id).update({
+          rating: data.rating,
+          text: data.text || null,
+          updated_at: new Date(),
+        });
+        res.json({ id: existing.id, updated: true });
+        return;
+      }
+
+      const id = uuidv4();
+      await db("equipment_reviews").insert({
+        id,
+        equipment_id: req.params.id,
+        patient_id: authReq.patientId,
+        author_id: authReq.userId,
+        display_name: displayName,
+        rating: data.rating,
+        text: data.text || null,
+        status: "published",
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      res.status(201).json({ id, updated: false });
+    } catch (error: any) {
+      logger.error("POST /equipment/:id/reviews error", {
+        error: error.message,
+      });
+      res.status(500).json({ error: "Failed to submit review" });
+    }
+  }
+);
 
 export default router;

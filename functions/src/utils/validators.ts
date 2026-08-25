@@ -114,3 +114,52 @@ export function validateBody<T>(schema: z.ZodSchema<T>, body: unknown): T {
   }
   return result.data;
 }
+
+// ── Round-5: schemas for the routes that never existed ──────
+//
+// Thirteen client calls had no backend route at all. These cover the ones
+// whose data model already exists, plus the two tables migration 006 adds.
+// Every one of them backs a control the user can already tap.
+
+export const recordVitalsSchema = z.object({
+  systolic: z.number().int().min(40).max(300).optional(),
+  diastolic: z.number().int().min(20).max(200).optional(),
+  pulse: z.number().int().min(20).max(250).optional(),
+  spo2: z.number().int().min(50).max(100).optional(),
+  temperature: z.number().min(80).max(115).optional(),
+  sugar: z.number().min(20).max(800).optional(),
+  recorded_at: z.string().optional(),
+  notes: z.string().max(1000).optional(),
+}).refine(
+  (v) =>
+    [v.systolic, v.diastolic, v.pulse, v.spo2, v.temperature, v.sugar]
+      .some((x) => x !== undefined),
+  { message: "At least one vital reading is required" }
+);
+
+export const cancelBookingSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
+export const rateBookingSchema = z.object({
+  rating: z.number().min(1).max(5),
+  comment: z.string().max(1000).optional(),
+});
+
+export const declineAssessmentSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
+export const acceptAssessmentSchema = z.object({
+  selected_plan: z.string().max(120).optional(),
+});
+
+export const staffReplacementSchema = z.object({
+  reason: z.string().min(1).max(1000),
+  details: z.string().max(2000).optional(),
+});
+
+export const equipmentReviewSchema = z.object({
+  rating: z.number().min(1).max(5),
+  text: z.string().max(2000).optional(),
+});
