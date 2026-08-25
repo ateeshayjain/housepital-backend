@@ -45,7 +45,7 @@ router.post(
         id: assessmentId,
         request_number: requestNumber,
         patient_id,
-        family_member_id: authReq.userId,
+        requested_by: authReq.userId,
         service_category,
         questionnaire_responses: JSON.stringify(
           questionnaire_responses || {}

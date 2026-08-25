@@ -57,7 +57,7 @@ router.post(
       await db("payments").insert({
         id: paymentId,
         patient_id: data.patient_id,
-        family_member_id: authReq.userId,
+        paid_by: authReq.userId,
         razorpay_order_id: order.id,
         amount: data.amount,
         currency: "INR",

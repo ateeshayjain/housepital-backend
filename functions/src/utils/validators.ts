@@ -54,16 +54,26 @@ export const onboardingSchema = z.object({
   patient_address: z.string().optional(),
 });
 
+// Field names match BOTH the `medications` table and MedicationFull.toJson()
+// in the Flutter client. They previously matched neither: the schema accepted
+// schedule_times / start_date / low_stock_threshold, the client sent
+// time_slots / prescribed_date / stock_unit / reminders_enabled, and the
+// table has the client's names. So a well-formed request from the app was
+// stripped to almost nothing by validation, and whatever survived hit an
+// unknown column.
 export const addMedicationSchema = z.object({
   name: z.string().min(1).max(255),
   dosage: z.string().max(100).optional(),
+  form: z.string().max(50).optional(),
   frequency: z.string().optional(),
-  schedule_times: z.array(z.string()).optional(),
+  time_slots: z.array(z.string()).optional(),
   instructions: z.string().max(1000).optional(),
-  start_date: z.string().optional(),
+  prescribed_by: z.string().max(255).optional(),
+  prescribed_date: z.string().optional(),
   end_date: z.string().optional(),
   stock_count: z.number().int().min(0).optional(),
-  low_stock_threshold: z.number().int().min(0).optional(),
+  stock_unit: z.string().max(50).optional(),
+  reminders_enabled: z.boolean().optional(),
 });
 
 export const addFamilyMemberSchema = z.object({
