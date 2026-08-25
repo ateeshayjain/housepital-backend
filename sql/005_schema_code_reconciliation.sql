@@ -25,48 +25,111 @@
 -- Every statement is additive and idempotent-ish; run once, in order, after
 -- 001. Verify against a copy before running on production data.
 
+-- ── Re-runnability ───────────────────────────────────────────
+--
+-- MySQL 8 has no `ADD COLUMN IF NOT EXISTS`, so a plain ALTER script can only
+-- be run once: the second run dies on the first duplicate column. That matters
+-- more than it sounds. If this script fails PART WAY through on its first run
+-- — a dropped connection, a permissions problem, a lock timeout — then the
+-- retry errors on the columns that did apply and never reaches the ones that
+-- did not, leaving the schema half-migrated with no safe way forward.
+--
+-- Nobody can rehearse this against production, so it has to be safe to run
+-- again. These two helpers check information_schema first and skip what is
+-- already there. `CREATE TABLE IF NOT EXISTS` below is already idempotent.
+--
+-- Verified: applied to a clean MySQL 8 database, then applied a second time
+-- with no errors and no schema difference.
+
+DROP PROCEDURE IF EXISTS hpl_add_column_if_missing;
+DROP PROCEDURE IF EXISTS hpl_add_index_if_missing;
+
+DELIMITER $$
+
+CREATE PROCEDURE hpl_add_column_if_missing(
+  IN p_table VARCHAR(64),
+  IN p_column VARCHAR(64),
+  IN p_definition TEXT
+)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = p_table
+      AND COLUMN_NAME = p_column
+  ) THEN
+    SET @sql = CONCAT('ALTER TABLE `', p_table, '` ADD COLUMN `',
+                      p_column, '` ', p_definition);
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+  END IF;
+END$$
+
+CREATE PROCEDURE hpl_add_index_if_missing(
+  IN p_table VARCHAR(64),
+  IN p_index VARCHAR(64),
+  IN p_columns TEXT
+)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = p_table
+      AND INDEX_NAME = p_index
+  ) THEN
+    SET @sql = CONCAT('ALTER TABLE `', p_table, '` ADD INDEX `',
+                      p_index, '` (', p_columns, ')');
+    PREPARE stmt FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+  END IF;
+END$$
+
+DELIMITER ;
+
 -- ── Audit columns the routes write on every mutation ─────────
 -- Five payment write sites set updated_at. Without the column, every one of
 -- them — order creation, verification, refund, invoice settle — errors.
 
-ALTER TABLE payments
-  ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ON UPDATE CURRENT_TIMESTAMP AFTER created_at;
+CALL hpl_add_column_if_missing('payments', 'updated_at',
+  'DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 
-ALTER TABLE medications
-  ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ON UPDATE CURRENT_TIMESTAMP AFTER created_at,
-  -- The Flutter client sends reminders_enabled in MedicationFull.toJson();
-  -- there was nowhere to put it, so the preference was silently discarded on
-  -- every create and update.
-  ADD COLUMN reminders_enabled BOOLEAN DEFAULT TRUE;
+CALL hpl_add_column_if_missing('medications', 'updated_at',
+  'DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 
-ALTER TABLE family_concerns
-  ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ON UPDATE CURRENT_TIMESTAMP AFTER created_at;
+-- The Flutter client sends reminders_enabled in MedicationFull.toJson().
+-- There was nowhere to put it, so the preference was silently discarded on
+-- every create and update.
+CALL hpl_add_column_if_missing('medications', 'reminders_enabled',
+  'BOOLEAN DEFAULT TRUE');
 
-ALTER TABLE daily_ratings
-  ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ON UPDATE CURRENT_TIMESTAMP AFTER created_at;
+CALL hpl_add_column_if_missing('family_concerns', 'updated_at',
+  'DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+
+CALL hpl_add_column_if_missing('daily_ratings', 'updated_at',
+  'DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 
 -- ── Notification read state ──────────────────────────────────
 -- PUT /notifications/:id/read and /read-all both write is_read and read_at.
 -- Neither existed, so a notification could never be marked read and the
 -- unread badge could never clear.
 
-ALTER TABLE notification_log
-  ADD COLUMN is_read BOOLEAN DEFAULT FALSE,
-  ADD COLUMN read_at DATETIME NULL,
-  ADD INDEX idx_user_unread (user_id, is_read);
+CALL hpl_add_column_if_missing('notification_log', 'is_read',
+  'BOOLEAN DEFAULT FALSE');
+CALL hpl_add_column_if_missing('notification_log', 'read_at',
+  'DATETIME NULL');
+CALL hpl_add_index_if_missing('notification_log', 'idx_user_unread',
+  'user_id, is_read');
 
 -- ── Catalog ordering ─────────────────────────────────────────
--- service_catalog already has display_order (the code's `sort_order` is fixed
--- in services.ts). equipment_catalog has no ordering column at all, and the
--- equipment route orders by one, so the whole catalog listing 500s.
+-- service_catalog already has display_order (the route's `sort_order` is
+-- fixed in services.ts). equipment_catalog had no ordering column at all, and
+-- the equipment route orders by one, so the whole catalog listing 500d.
 
-ALTER TABLE equipment_catalog
-  ADD COLUMN sort_order INT DEFAULT 0,
-  ADD INDEX idx_sort (sort_order);
+CALL hpl_add_column_if_missing('equipment_catalog', 'sort_order',
+  'INT DEFAULT 0');
+CALL hpl_add_index_if_missing('equipment_catalog', 'idx_sort', 'sort_order');
 
 -- ── Staff profile ────────────────────────────────────────────
 -- GET /staff/:id reads staff_reviews and staff_documents. Neither table has
@@ -146,3 +209,9 @@ CREATE TABLE IF NOT EXISTS health_manager_assignments (
   FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
   FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ── Clean up ─────────────────────────────────────────────────
+-- The helpers exist only for the duration of this migration.
+
+DROP PROCEDURE IF EXISTS hpl_add_column_if_missing;
+DROP PROCEDURE IF EXISTS hpl_add_index_if_missing;

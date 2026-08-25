@@ -79,9 +79,18 @@ function parseSchema(sql: string): Record<string, Set<string>> {
       const cm = /^(\w+)\s+[A-Za-z]/.exec(line);
       if (!cm) continue;
       const w = cm[1].toUpperCase();
+      // Table-level clauses, and SQL keywords that can begin a CONTINUATION
+      // line of a multi-line column definition. A multi-line
+      // `status ENUM(\n  'a', 'b'\n) NOT NULL DEFAULT 'x'` wraps so that a
+      // line starts with `NOT NULL DEFAULT ...`, and the naive rule read
+      // `NOT` as a column name. That direction of error is the quiet one: a
+      // phantom column makes this guard MORE permissive, so a genuinely wrong
+      // reference to `staff_documents.NOT` would have passed.
       if (
         ["PRIMARY", "KEY", "UNIQUE", "INDEX", "CONSTRAINT", "FOREIGN",
-         "CHECK", "FULLTEXT"].includes(w)
+         "CHECK", "FULLTEXT", "NOT", "NULL", "DEFAULT", "ON", "ENGINE",
+         "REFERENCES", "AUTO_INCREMENT", "UNSIGNED", "CHARACTER",
+         "COLLATE"].includes(w)
       ) {
         continue;
       }
@@ -90,13 +99,29 @@ function parseSchema(sql: string): Record<string, Set<string>> {
     tables[name] = cols;
   }
 
-  const alterRe = /ALTER TABLE\s+(\w+)([\s\S]*?);/gi;
+  // Plain `ALTER TABLE ... ADD COLUMN`.
+  const alterRe = /ALTER TABLE\s+`?(\w+)`?([\s\S]*?);/gi;
   while ((m = alterRe.exec(sql))) {
     const name = m[1];
     if (!tables[name]) continue;
-    for (const am of m[2].matchAll(/ADD COLUMN\s+(\w+)/gi)) {
+    for (const am of m[2].matchAll(/ADD COLUMN\s+`?(\w+)`?/gi)) {
       tables[name].add(am[1]);
     }
+  }
+
+  // Guarded adds: `CALL hpl_add_column_if_missing('table', 'column', '...')`.
+  //
+  // Migration 005 uses these instead of bare ALTERs because MySQL 8 has no
+  // `ADD COLUMN IF NOT EXISTS`, and a migration that cannot be re-run is
+  // unsafe when it fails part way. This parser has to know about the form or
+  // it reports every guarded column as missing — which is exactly what it did
+  // the moment 005 was rewritten, correctly refusing to pass on input it no
+  // longer understood.
+  const callRe =
+    /CALL\s+hpl_add_column_if_missing\s*\(\s*'(\w+)'\s*,\s*'(\w+)'/gi;
+  while ((m = callRe.exec(sql))) {
+    const [, table, column] = m;
+    if (tables[table]) tables[table].add(column);
   }
 
   return tables;
@@ -159,7 +184,49 @@ describe("every table the code queries exists in the migrations", () => {
   it("parses a non-trivial schema (guards the parser itself)", () => {
     expect(Object.keys(schema).length).toBeGreaterThanOrEqual(25);
     expect(schema.payments).toBeDefined();
+  });
+
+  it("sees columns added by BOTH migration forms", () => {
+    // A parser that silently understands only one form is worse than no
+    // parser: it reports real columns as missing and trains people to ignore
+    // it. payments.updated_at arrives via a guarded CALL;
+    // notification_log.is_read too; equipment_catalog.sort_order too.
     expect(schema.payments.has("updated_at")).toBe(true);
+    expect(schema.medications.has("reminders_enabled")).toBe(true);
+    expect(schema.notification_log.has("is_read")).toBe(true);
+    expect(schema.notification_log.has("read_at")).toBe(true);
+    expect(schema.equipment_catalog.has("sort_order")).toBe(true);
+  });
+
+  it("does not invent columns from wrapped definitions", () => {
+    // staff_documents.status is a multi-line ENUM whose continuation line
+    // begins `NOT NULL DEFAULT`. Cross-checked against a real MySQL 8
+    // database built from these migrations: 25 tables, 351 columns, and this
+    // was the only disagreement.
+    expect(schema.staff_documents.has("NOT")).toBe(false);
+    expect(schema.staff_documents.has("NULL")).toBe(false);
+    expect(schema.staff_documents.has("status")).toBe(true);
+  });
+
+  it("does not blacklist words that are also real column names", () => {
+    // The first version of the keyword list included COMMENT, which deleted
+    // `daily_ratings.comment` and `staff_reviews.comment` — real columns the
+    // routes read. Only keywords that can plausibly BEGIN a wrapped
+    // continuation line belong on that list; `comment` needs backticks to be
+    // a keyword there, `not`/`null`/`default` do not.
+    expect(schema.daily_ratings.has("comment")).toBe(true);
+    expect(schema.staff_reviews.has("comment")).toBe(true);
+  });
+
+  it("sees the four tables migration 005 creates", () => {
+    for (const t of [
+      "staff_reviews",
+      "staff_documents",
+      "equipment_deployments",
+      "health_manager_assignments",
+    ]) {
+      expect(schema[t]).toBeDefined();
+    }
   });
 
   it("finds query sites to check (guards the scanner itself)", () => {
